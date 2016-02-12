@@ -1,0 +1,214 @@
+---
+title: "Predicting Exercise Manner"
+author: "Andrew Kostandy"
+date: "February 4, 2016"
+output: html_document
+---
+
+## Executive Summary
+
+In this project, we analyze the data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants who were asked to perform barbell lifts correctly and incorrectly in 5 different ways. Our goal is to predict the manner in which they did the exercise based on this data. At the end we also use our prediction model to predict 20 different test cases. Our Analysis and Modeling Work led us to identify 52 predictors in the data that enable us to make the prediction required with a very high degree of accuracy using a C5.0 model which was the best performing model from 4 different types we tried. During the Feature Selection and Model Training and Evaluation stages, we used K-Fold Cross-Validation.
+
+## Data Processing
+
+Let's start by loading the libraries we'll need. Then we'll read in the Original training and Original testing data sets.
+
+```{r message=FALSE}
+library(caret);library(plyr);library(dplyr);library(C50);library(mlbench);
+trainingOrigin<-read.csv("pml-training.csv")
+testingOrigin<-read.csv("pml-testing.csv")
+```
+
+Next, lets split the Orignal training data set into training and testing data sets.
+
+```{r}
+set.seed(13579)
+inTrain<-createDataPartition(y=trainingOrigin$classe,p=0.70,list=FALSE)
+training<-trainingOrigin[inTrain,]
+testing<-trainingOrigin[-inTrain,]
+```
+
+## Exploratory Data Analysis & Feature Selection
+
+Let's have a look at the dimensions of our training data set.
+
+```{r}
+dim(training)
+```
+
+Let's have a look at the first few variables in the training data set.
+
+```{r}
+head(names(training),n=10)
+```
+
+Let's have a look at the last few variables in the training data set.
+
+```{r}
+tail(names(training),n=10)
+```
+
+Notice the variable X which could be just an index variable. Let's see if it actually is an index and if it has any relationship with the classe. In other words, is the data in the training set ordered by classe?
+
+```{r}
+plot(training$X,col=training$classe)
+```
+
+It seems that X was indeed equal to the index in the original data set. Splitting the original data set caused it to appear here not exactly equal to the index of this training set obviously but it does keep it's linearity with the index here. Additionally, we see that the classe variable values seem to be grouped together as they change as the index (row number) as well as X change. This X variable has the potential to confuse any machine learning algorithm we use as it would trick it into believing it can predict the classe of a testing set just based on the X value (=index value in Original Training Data Set). Additionally, the next 6 variables after X are specific to this experiment and dataset and would therefore not be good predictors overall. Let's have a look at these variable names again.
+
+```{r}
+names(training)[2:7]
+```
+
+Let's make sure X and those next 6 variables are not included as predictors. Going forward, we'll also remove unneeded variables from versions of the trainingOrigin as well so we can train the final model at the end on the predictors we'll end up selecting.
+
+```{r}
+remove<-1:7
+training2<-select(training,-remove)
+trainingOrigin2<-select(trainingOrigin,-remove)
+```
+
+A closer look at the training set yields an interesting observation. 67 variables have over 97.5% of their values as NA. As this is such a huge percentage, imputation would not make sense here. Therefore we won't use these variables as predictors.
+
+```{r}
+## We need to identify which columns have over 97.5% of their values as NAs from the training2 data set to remove them.
+indexer<-integer()
+for (i in 1:ncol(training2)){
+        if((sum(is.na(training2[,i]))/nrow(training2))>=0.975){
+                indexer<-append(indexer,i)
+        }
+}
+length(indexer)
+training3<-select(training2,-indexer)
+trainingOrigin3<-select(trainingOrigin2,-indexer)
+```
+
+Next, let's have a look at the remaining variables in our training3 data set to identify those variables with Near Zero Variability as these won't help our machine learning algorithms to make predictions. Let's remove those variables too. We know from the plot above that the classe variable doesn't have near zero variability so we can keep it to go through the below and it will remain in the dataset. Below we find 33 variables with Near Zero Variability to remove.
+
+```{r}
+## Identify Variables with Near Zero Variability and Remove them from the Training Set
+nsv<-nearZeroVar(training3,saveMetrics = TRUE)
+indexer2<-integer()
+for (i in 1:nrow(nsv)){
+        if (nsv[i,4]==TRUE){
+                indexer2<-append(indexer2,i)
+        }
+}
+length(indexer2)
+training4<-select(training3,-indexer2)
+trainingOrigin4<-select(trainingOrigin3,-indexer2)
+```
+
+The variables remaining now are those which should be the most useful in making predictions. Let's see how many those are.
+
+```{r}
+## We subtract 1 as classe (the outcome) is counted as one of the variables and we want to know the number of predictors.
+ncol(training4)-1
+```
+
+That's still a lot of variables and training our algorithms on all of those carries the risk of overfitting. Perhaps we can identify how many features we actually need to make predictions and what those features are with Recursive Feature Elimination (RFE). We'll use Random Forests in each iteration for evaluation purposes and we'll use K-Fold cross-validation setting the value of K to 10.
+
+```{r cache=TRUE,message=FALSE}
+## forSizes sets the various numbers of variables the rfe function will try out and evaluate
+forSizes <- c(1:10, 15, 20, 25, 30, 35, 40, 50, 52)
+control <- rfeControl(functions=rfFuncs, method="cv", number=10)
+
+set.seed(54321)
+theresults <- rfe(training4[,1:52], training4[,53], sizes=forSizes, rfeControl=control)
+```
+
+Now let's check at what number of predictors do we get the highest accuracy and what those predictors are.
+
+```{r}
+plot(theresults, type=c("g", "o"))
+theresults
+```
+
+We can see that the highest accuracy comes when using all the remaining 52 predictors. So we don't actually get a higher accuracy when using fewer predictors here.
+
+## Model Training & Selection
+
+Let's think about how we're gonna train and evaluate various models on our training4 set. I have decided to use K-Fold Cross-Validation and I'll set the value of K at 10. Therefore the dataset will be split into 10 parts. The algorithm will be run 10 times on the data, each time using 9 of the 10 subsamples as a training set and the remaining 1 subsample as a testing set. Each one of the subsamples will get to be a testing set once and a part of the training set 9 times. The mean error rate we get from an algorithm after getting tested these 10 times would be a good estimate of the mean out of sample error rate.  
+
+I will try 4 different classification model types to try and predict classe based on the 52 predictor variables in the training4 data set.
+
+I'll evaluate the following algorithms:  
+
+1) Recursive Partitioning (rpart)  
+2) Random Forests (rf)  
+3) Gradient Boosted Method (gbm)  
+4) C5.0 Algorithm  
+
+Notice that I set the seed everytime before training the algorithms below to ensure that we're comparing results on the same exact subsamples.
+
+```{r cache=TRUE, message=FALSE}
+control <- trainControl(method="cv", number=10)
+
+set.seed(12345)
+ctmodFit<-train(classe~.,data=training4,method="rpart",trControl=control)
+
+set.seed(12345)
+rfmodFit<-train(classe~.,data=training4,method="rf",PROX=TRUE, trControl=control)
+
+set.seed(12345)
+bomodFit<-train(classe~.,data=training4,method="gbm", trControl=control,verbose=FALSE)
+
+set.seed(12345)
+c5modFit<-train(classe~.,data=training4,method="C5.0", trControl=control,verbose=FALSE)
+```
+
+Now let's evaluate the results from each of the models.
+
+```{r}
+results<-resamples(list(RPART=ctmodFit, RF=rfmodFit, GBM=bomodFit, C5=c5modFit))
+summary(results)
+```
+
+We can see from the summary that the mean accuracy of the C5.0 and Random Forests algorithms are over 0.99, and the mean accuracy of the GBM algorithm is over 0.96. They are all much higher than the RPART algorithm. Our estimate of the average out of sample error rate we would get from each algorithm would be 1 - the mean accuracy of that algorithm.
+
+Let's see a boxplot of the top 3 algorithm results.
+
+```{r}
+topresults<-resamples(list(RF=rfmodFit, GBM=bomodFit, C5=c5modFit))
+bwplot(topresults)
+```
+
+As our top 2 algorithms have a mean accuracy of over **0.99**, we really don't need to use Ensembling Methods. We can just use the top performing algorithm.
+
+The top algorithm in accuracy seems to be C5.0. Based on its K-Fold Cross-Validation mean accuracy results (**0.9938**), we can estimate its average out of sample error rate to be approximately **0.0062 which equals 0.62 %.**
+
+Now that we have our best algorithm, let's train it again but this time without cross-validation so it gets trained on our entire training4 dataset (without holding out any subsamples for cross-validation)
+
+```{r cache=TRUE, message=FALSE, warning=FALSE}
+c5modFitFinal<-train(classe~.,data=training4,method="C5.0",verbose=FALSE)
+```
+
+Next, let's test it out on our own testing data set split we created and see the accuracy. The accuracy should be close to the mean accuracy we saw earlier with cross-validation.
+
+```{r message=FALSE}
+ourC5TestPredict<-predict(c5modFitFinal,testing)
+confusionMatrix(ourC5TestPredict,testing$classe)
+```
+
+Indeed, the accuracy of our model on our testing data set comes out to be almost exactly equal to what we expected, coming at **0.9944**. Therefore, we are now also more confident about our expected out of sample error rate.
+
+Next, let's train our model again but this time on the entire original training set (without our split for training and testing). This is in preparation to predict on the original testing set given in the project assignment.
+
+```{r cache=TRUE, message=FALSE, warning=FALSE}
+c5modFitFull<-train(classe ~ ., data=trainingOrigin4, method="C5.0", verbose=FALSE)
+```
+
+## Predicting For The Project Test
+
+Now let's use our c5modFitFull C5.0 model to predict the classe variable in the original testing data set.
+
+```{r message=FALSE}
+c5predictOriginTest<-predict(c5modFitFull,testingOrigin)
+c5predictOriginTest
+```
+
+Submitting those classe predictions into the Course Project Prediction Quiz yielded a score of 20/20.
+
+<br><br>
+
+
