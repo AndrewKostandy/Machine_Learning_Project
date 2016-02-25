@@ -209,6 +209,9 @@ c5predictOriginTest
 
 Submitting those classe predictions into the Course Project Prediction Quiz yielded a score of 20/20.
 
-<br><br>
+## Data Source
 
+The data used in this project can be accessed [here](http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises).  
+The research paper this data is based on can be accessed [here](http://groupware.les.inf.puc-rio.br/public/papers/2013.Velloso.QAR-WLE.pdf).
+<br><br>
 
