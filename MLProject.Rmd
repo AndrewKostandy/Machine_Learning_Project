@@ -177,10 +177,18 @@ As our top 2 algorithms have a mean accuracy of over **0.99**, we really don't n
 
 The top algorithm in accuracy seems to be C5.0. Based on its K-Fold Cross-Validation mean accuracy results (**0.9938**), we can estimate its average out of sample error rate to be approximately **0.0062 which equals 0.62 %.**
 
-Now that we have our best algorithm, let's train it again but this time without cross-validation so it gets trained on our entire training4 dataset (without holding out any subsamples for cross-validation)
+Now that we have our best algorithm, let's train it again but this time without cross-validation so it gets trained on our entire training4 dataset (without holding out any subsamples for cross-validation).
+
+We'll use the best tuning parameters we got when training the c5modFit model. We can see those parameters here:  
+
+```{r}
+c5modFit$bestTune
+```
 
 ```{r cache=TRUE, message=FALSE, warning=FALSE}
-c5modFitFinal<-train(classe~.,data=training4,method="C5.0",verbose=FALSE)
+c5Grid<-expand.grid(trials=20, model="tree", winnow=TRUE)
+
+c5modFitFinal<-train(classe~.,data=training4,method="C5.0",verbose=FALSE, tuneGrid=c5Grid)
 ```
 
 Next, let's test it out on our own testing data set split we created and see the accuracy. The accuracy should be close to the mean accuracy we saw earlier with cross-validation.
@@ -190,18 +198,20 @@ ourC5TestPredict<-predict(c5modFitFinal,testing)
 confusionMatrix(ourC5TestPredict,testing$classe)
 ```
 
-Indeed, the accuracy of our model on our testing data set comes out to be almost exactly equal to what we expected, coming at **0.9944**. Therefore, we are now also more confident about our expected out of sample error rate.
+Indeed, the accuracy of our model on our testing data set comes out to be almost exactly equal to what we expected, coming at **0.9929**. Therefore, we are now also more confident about our expected out of sample error rate.
 
 Next, let's train our model again but this time on the entire original training set (without our split for training and testing). This is in preparation to predict on the original testing set given in the project assignment.
 
+We'll continue to use the best tuning parameters we got when training the c5modFit model.
+
 ```{r cache=TRUE, message=FALSE, warning=FALSE}
-c5modFitFull<-train(classe ~ ., data=trainingOrigin4, method="C5.0", verbose=FALSE)
+c5modFitFull<-train(classe ~ ., data=trainingOrigin4, method="C5.0", verbose=FALSE, tuneGrid = c5Grid)
 ```
 
 ## Predicting For The Project Test
 
 Now let's use our c5modFitFull C5.0 model to predict the classe variable in the original testing data set.
-
+ 
 ```{r message=FALSE}
 c5predictOriginTest<-predict(c5modFitFull,testingOrigin)
 c5predictOriginTest
